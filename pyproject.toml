@@ -1,11 +1,12 @@
 [project]
-name = "pesu-mc-bot"
-version = "0.1.0"
+name = "xymic"
+version = "1.0.0"
 description = "HE WHO OWNS"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "discord-py>=2.6.4",
+    "httpx>=0.28.0",
     "flask>=3.1.2",
     "google-auth>=2.47.0",
     "google-cloud-compute>=1.42.0",

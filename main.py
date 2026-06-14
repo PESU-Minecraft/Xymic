@@ -1,12 +1,12 @@
 import os
 from dotenv import load_dotenv
-
+import asyncio
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 import asyncio
 from datetime import datetime, timezone
-
+from pymongo import AsyncMongoClient
 from utils import (
     is_admin,
     get_player_count,
@@ -21,15 +21,39 @@ from utils import (
 
 from stats.graphs import plot_metric
 from stats.mongo import server_metrics, players, duels_db
-from datetime import datetime, timezone
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="$", intents=intents, help_command=None)
+
+MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
+
+class MinecraftCommandTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.command and interaction.command.name in MINECRAFT_COMMANDS:
+            mc_ready_env = os.getenv("MC_READY", "false") or "false"
+            mc_ready = mc_ready_env.lower() == "true"
+            
+            if not mc_ready:
+                await interaction.response.send_message(
+                    "This feature is currently disabled because the Minecraft server services are offline.",
+                    ephemeral=False
+                )
+                return False
+        return True
+
+bot = commands.Bot(command_prefix="$", intents=intents, help_command=None, tree_cls=MinecraftCommandTree)
 tree = bot.tree
+
+# new async client for auth db, cuz 1 project db can only have 1 cluster under mongo free plan
+mongo_uri = os.getenv("AUTH_MONGO_URI", os.getenv("MONGO_URI", ""))
+auth_db_name = os.getenv("AUTH_DB_NAME", "xymic")
+_mongo = AsyncMongoClient(mongo_uri, tz_aware=True) if mongo_uri else None
+bot.link_collection = _mongo[auth_db_name]["link"] 
+bot.verify_enabled = True
+
 empty_time = None
 trigger_shutdown = False
 
@@ -213,9 +237,31 @@ async def on_ready():
     STACK: Discord Bot
     Login acknowledgement and start timers for `check_server`
     """
-    await tree.sync()
+    await bot.load_extension("auth.verify")
+
+    guild_id = os.getenv("GUILD_ID")
+    if guild_id:
+        try:
+            guild = discord.Object(id=int(guild_id))
+            tree.copy_global_to(guild=guild)
+            await tree.sync(guild=guild)
+            print(f"[DISCORD BOT] Synced commands to guild {guild_id}")
+            
+            tree.clear_commands(guild=None)
+            await tree.sync()
+            # this to clear global comms , and to prevent dups
+        except Exception as e:
+            print(f"[DISCORD BOT] Failed to sync: {e}")
+    else:
+        await tree.sync()
+        print("[DISCORD BOT] Synced commands globally (no GUILD_ID set)")
+
     print(f"[DISCORD BOT] Logged in as {bot.user}")
-    check_server.start()
+    
+    mc_ready_env = os.getenv("MC_READY", "false") or "false"
+    mc_ready = mc_ready_env.lower() == "true"
+    if mc_ready:
+        check_server.start()
 
 @bot.event
 async def on_message(message):
