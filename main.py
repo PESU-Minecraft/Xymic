@@ -241,6 +241,7 @@ async def on_ready():
     await tree.sync()
     await bot.load_extension("auth.verify")
     print(f"[DISCORD BOT] Logged in as {bot.user}")
+    mc_ready = os.getenv("MC_READY").lower() == "true"
     if mc_ready:
         check_server.start()
 

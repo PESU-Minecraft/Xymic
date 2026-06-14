@@ -14,7 +14,7 @@ echo "[STARTUP] Starting Gunicorn webserver..."
 uv run gunicorn \
     -w "${GUNICORN_WORKERS:-2}" \
     --threads "${GUNICORN_THREADS:-2}" \
-    -b 0.0.0.0:7860 \
+    -b "0.0.0.0:${PORT:-10000}" \
     --access-logfile - \
     --error-logfile - \
     webserver:app &
