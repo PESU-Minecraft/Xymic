@@ -21,12 +21,14 @@ from utils import (
 
 from stats.graphs import plot_metric
 from stats.mongo import server_metrics, players, duels_db
+from auth.config import Config
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
 
@@ -262,6 +264,18 @@ async def on_ready():
     mc_ready = mc_ready_env.lower() == "true"
     if mc_ready:
         check_server.start()
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    if not bot.verify_enabled:
+        try:
+            config = Config(bot)
+            verified_role = config.verified_role
+            if verified_role:
+                await member.add_roles(verified_role, reason="Verification is disabled, giving player role on join")
+                print(f"[JOIN] Assigned verified role to {member} (ID: {member.id}) on join (auth disabled)")
+        except Exception as e:
+            print(f"[JOIN] Failed to assign verified role to {member} (ID: {member.id}): {e}")
 
 @bot.event
 async def on_message(message):
