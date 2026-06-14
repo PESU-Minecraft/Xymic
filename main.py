@@ -1,12 +1,12 @@
 import os
 from dotenv import load_dotenv
-
+import asyncio
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 import asyncio
 from datetime import datetime, timezone
-
+from pymongo import AsyncMongoClient
 from utils import (
     is_admin,
     get_player_count,
@@ -21,7 +21,6 @@ from utils import (
 
 from stats.graphs import plot_metric
 from stats.mongo import server_metrics, players, duels_db
-from datetime import datetime, timezone
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -30,6 +29,32 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="$", intents=intents, help_command=None)
 tree = bot.tree
+
+# new async client for auth db, cuz 1 project db can only have 1 cluster under mongo free plan
+mongo_uri = os.getenv("AUTH_MONGO_URI", os.getenv("MONGO_URI", ""))
+auth_db_name = os.getenv("AUTH_DB_NAME", "xymic")
+_mongo = AsyncMongoClient(mongo_uri, tz_aware=True) if mongo_uri else None
+bot.link_collection = _mongo[auth_db_name]["link"] 
+bot.verify_enabled = True
+
+# since gcp service acc bs, stats mongo server and crafty are not alive
+# this piece of code will catch these comms and belt their ass :)
+# toggle using MC_READY variable in .env
+
+MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
+
+@tree.interaction_check
+async def check_services(interaction: discord.Interaction) -> bool:
+    if interaction.command and interaction.command.name in MINECRAFT_COMMANDS:
+        mc_ready = os.getenv("MC_READY").lower() == "true"
+        if not mc_ready:
+            await interaction.response.send_message(
+                "This feature is currently disabled because the Minecraft server services are offline!!",
+                ephemeral=False
+            )
+            return False
+    return True
+
 empty_time = None
 trigger_shutdown = False
 
@@ -214,8 +239,10 @@ async def on_ready():
     Login acknowledgement and start timers for `check_server`
     """
     await tree.sync()
+    await bot.load_extension("auth.verify")
     print(f"[DISCORD BOT] Logged in as {bot.user}")
-    check_server.start()
+    if mc_ready:
+        check_server.start()
 
 @bot.event
 async def on_message(message):
