@@ -27,7 +27,24 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="$", intents=intents, help_command=None)
+
+MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
+
+class MinecraftCommandTree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.command and interaction.command.name in MINECRAFT_COMMANDS:
+            mc_ready_env = os.getenv("MC_READY", "false") or "false"
+            mc_ready = mc_ready_env.lower() == "true"
+            
+            if not mc_ready:
+                await interaction.response.send_message(
+                    "This feature is currently disabled because the Minecraft server services are offline.",
+                    ephemeral=False
+                )
+                return False
+        return True
+
+bot = commands.Bot(command_prefix="$", intents=intents, help_command=None, tree_cls=MinecraftCommandTree)
 tree = bot.tree
 
 # new async client for auth db, cuz 1 project db can only have 1 cluster under mongo free plan
@@ -36,24 +53,6 @@ auth_db_name = os.getenv("AUTH_DB_NAME", "xymic")
 _mongo = AsyncMongoClient(mongo_uri, tz_aware=True) if mongo_uri else None
 bot.link_collection = _mongo[auth_db_name]["link"] 
 bot.verify_enabled = True
-
-# since gcp service acc bs, stats mongo server and crafty are not alive
-# this piece of code will catch these comms and belt their ass :)
-# toggle using MC_READY variable in .env
-
-MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
-
-@tree.interaction_check
-async def check_services(interaction: discord.Interaction) -> bool:
-    if interaction.command and interaction.command.name in MINECRAFT_COMMANDS:
-        mc_ready = os.getenv("MC_READY").lower() == "true"
-        if not mc_ready:
-            await interaction.response.send_message(
-                "This feature is currently disabled because the Minecraft server services are offline!!",
-                ephemeral=False
-            )
-            return False
-    return True
 
 empty_time = None
 trigger_shutdown = False
@@ -238,10 +237,29 @@ async def on_ready():
     STACK: Discord Bot
     Login acknowledgement and start timers for `check_server`
     """
-    await tree.sync()
     await bot.load_extension("auth.verify")
+
+    guild_id = os.getenv("GUILD_ID")
+    if guild_id:
+        try:
+            guild = discord.Object(id=int(guild_id))
+            tree.copy_global_to(guild=guild)
+            await tree.sync(guild=guild)
+            print(f"[DISCORD BOT] Synced commands to guild {guild_id}")
+            
+            tree.clear_commands(guild=None)
+            await tree.sync()
+            # this to clear global comms , and to prevent dups
+        except Exception as e:
+            print(f"[DISCORD BOT] Failed to sync: {e}")
+    else:
+        await tree.sync()
+        print("[DISCORD BOT] Synced commands globally (no GUILD_ID set)")
+
     print(f"[DISCORD BOT] Logged in as {bot.user}")
-    mc_ready = os.getenv("MC_READY").lower() == "true"
+    
+    mc_ready_env = os.getenv("MC_READY", "false") or "false"
+    mc_ready = mc_ready_env.lower() == "true"
     if mc_ready:
         check_server.start()
 
