@@ -16,7 +16,6 @@ from auth.general import build_unknown_error_embed
 # this shit not gonna change so, no need .env
 _PESUAUTH_URL = "https://pesu-auth.onrender.com/authenticate"
 
-_SRN_RE = re.compile(r"^PES\dUG(\d{2})", re.IGNORECASE)  # Sem-1 python U3 ig :HA:
 
 _BRANCH_MAP: dict[str, str] = {
     "computer science and engineering": "CSE",
@@ -28,14 +27,41 @@ _BRANCH_MAP: dict[str, str] = {
     "biotechnology": "BT",
 }
 
+# HAHAHA, PCPS U3 helped
+_SRN_VALIDATION_RE = re.compile(r"^PES([12])UG(\d{2})([A-Z]{2})(\d{3})$", re.IGNORECASE)
+_PRN_VALIDATION_RE = re.compile(r"^PES([12])(\d{4})(\d{5})$", re.IGNORECASE)
+
+
+def _is_valid_srn_or_prn(val: str) -> bool:
+    cleaned = val.strip()
+
+    m_srn = _SRN_VALIDATION_RE.match(cleaned)
+    if m_srn:
+        roll_no = int(m_srn.group(4))
+        return 1 <= roll_no <= 720
+        
+    m_prn = _PRN_VALIDATION_RE.match(cleaned)
+    if m_prn:
+        return True
+        
+    return False
+
 
 def _hash_srn(srn: str) -> str:
     return hashlib.sha256(srn.strip().upper().encode()).hexdigest()
 
 
 def _year_from_srn(srn: str) -> str | None:
-    m = _SRN_RE.match(srn.strip())
-    return str(2000 + int(m.group(1))) if m else None
+    val = srn.strip()
+    m_srn = _SRN_VALIDATION_RE.match(val)
+    if m_srn:
+        return str(2000 + int(m_srn.group(2)))
+        
+    m_prn = _PRN_VALIDATION_RE.match(val)
+    if m_prn:
+        return m_prn.group(2)
+        
+    return None
 
 
 def _normalise_branch(raw: str) -> str:
@@ -84,6 +110,13 @@ class SlashVerify(commands.Cog):
         if not isinstance(interaction.user, discord.Member):
             await interaction.followup.send(
                 "What you wanna achieve with this brother/sister? (you must be a member of the PESU-MC to verify)",
+                ephemeral=True,
+            )
+            return
+
+        if not _is_valid_srn_or_prn(srn):
+            await interaction.followup.send(
+                "You trynna play with me huh?! THAT WAS NOT A VALID SRN/PRN",
                 ephemeral=True,
             )
             return
