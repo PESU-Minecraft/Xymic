@@ -10,7 +10,11 @@ logging.basicConfig(
 
 @app.route("/")
 def home():
-    return "[HOST] Bot is online"
+    return {
+        "status": "online",
+        "commit": os.getenv("RENDER_GIT_COMMIT"),
+        "branch": os.getenv("RENDER_GIT_BRANCH"),
+    }
 
 @app.route("/health")
 def health():
