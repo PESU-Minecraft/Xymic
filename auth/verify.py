@@ -191,8 +191,6 @@ class SlashVerify(commands.Cog):
         if branch_key not in self.config.ROLES.get("BRANCH", {}):
             branch_key = "OTHER"
 
-        grad_year = None
-        display_year = "Unknown"
         if year:
             grad_year = str(int(year) + 4)
             display_year = f"Batch of {grad_year}"
