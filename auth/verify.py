@@ -170,7 +170,20 @@ class SlashVerify(commands.Cog):
             )
             return
         
-        verified_srn_or_prn = profile.get("srn", srn.strip().upper()) or profile.get("prn", srn.strip().upper())
+        profile = data.get("profile", {})
+        srn_val = profile.get("srn")
+        prn_val = profile.get("prn")
+        
+        def is_real_id(val: Any) -> bool:
+            return bool(val and str(val).strip().upper() not in ("NA", "N/A", "NONE", ""))
+            
+        if is_real_id(srn_val):
+            verified_srn_or_prn = srn_val.strip().upper()
+        elif is_real_id(prn_val):
+            verified_srn_or_prn = prn_val.strip().upper()
+        else:
+            verified_srn_or_prn = srn.strip().upper()
+
         campus_api = profile.get("campus", "RR").strip().upper()
         year = _year_from_srn(verified_srn_or_prn)
         
@@ -178,6 +191,8 @@ class SlashVerify(commands.Cog):
         if branch_key not in self.config.ROLES.get("BRANCH", {}):
             branch_key = "OTHER"
 
+        grad_year = None
+        display_year = "Unknown"
         if year:
             grad_year = str(int(year) + 4)
             display_year = f"Batch of {grad_year}"
