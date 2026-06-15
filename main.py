@@ -21,12 +21,14 @@ from utils import (
 
 from stats.graphs import plot_metric
 from stats.mongo import server_metrics, players, duels_db
+from auth.config import Config
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
 
@@ -262,6 +264,33 @@ async def on_ready():
     mc_ready = mc_ready_env.lower() == "true"
     if mc_ready:
         check_server.start()
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    if not bot.verify_enabled:
+        try:
+            config = Config(bot)
+            verified_role = config.verified_role
+            if verified_role:
+                await member.add_roles(verified_role, reason="Verification is disabled, giving player role on join")
+                print(f"[JOIN] Assigned verified role to {member} (ID: {member.id}) on join (auth disabled)")
+        except Exception as e:
+            print(f"[JOIN] Failed to assign verified role to {member} (ID: {member.id}): {e}")
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    if hasattr(bot, "link_collection") and bot.link_collection is not None:
+        result = await bot.link_collection.delete_one({"userId": str(member.id)})
+        if result.deleted_count > 0:
+            config = Config(bot)
+            log = discord.Embed(
+                title="Member left & de-verified",
+                description=f"Removed verification entry for {member.mention}",
+                color=discord.Color.orange(),
+                timestamp=datetime.now(tz=timezone.utc),
+            )
+            log.add_field(name="User", value=f"{member} ({member.id})")
+            await config.mod_logs_channel.send(embed=log)
 
 @bot.event
 async def on_message(message):
