@@ -278,6 +278,21 @@ async def on_member_join(member: discord.Member):
             print(f"[JOIN] Failed to assign verified role to {member} (ID: {member.id}): {e}")
 
 @bot.event
+async def on_member_remove(member: discord.Member):
+    if hasattr(bot, "link_collection") and bot.link_collection is not None:
+        result = await bot.link_collection.delete_one({"userId": str(member.id)})
+        if result.deleted_count > 0:
+            config = Config(bot)
+            log = discord.Embed(
+                title="Member left & de-verified",
+                description=f"Removed verification entry for {member.mention}",
+                color=discord.Color.orange(),
+                timestamp=datetime.now(tz=timezone.utc),
+            )
+            log.add_field(name="User", value=f"{member} ({member.id})")
+            await config.mod_logs_channel.send(embed=log)
+
+@bot.event
 async def on_message(message):
     if message.author.bot:
         return

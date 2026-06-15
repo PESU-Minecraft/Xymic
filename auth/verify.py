@@ -16,17 +16,6 @@ from auth.general import build_unknown_error_embed
 # this shit not gonna change so, no need .env
 _PESUAUTH_URL = "https://pesu-auth.onrender.com/authenticate"
 
-
-_BRANCH_MAP: dict[str, str] = {
-    "computer science and engineering": "CSE",
-    "computer science and engineering (artificial intelligence and machine learning)": "CSE (AI&ML)",
-    "cse (ai&ml)": "CSE (AI&ML)",
-    "electronics and communication engineering": "ECE",
-    "electrical and electronics engineering": "EEE",
-    "mechanical engineering": "ME",
-    "biotechnology": "BT",
-}
-
 # HAHAHA, PCPS U3 helped
 _SRN_VALIDATION_RE = re.compile(r"^PES([12])UG(\d{2})([A-Z]{2})(\d{3})$", re.IGNORECASE)
 _PRN_VALIDATION_RE = re.compile(r"^PES([12])(\d{4})(\d{5})$", re.IGNORECASE)
@@ -64,16 +53,20 @@ def _year_from_srn(srn: str) -> str | None:
     return None
 
 
-def _normalise_branch(raw: str) -> str:
-    return _BRANCH_MAP.get(raw.strip().lower(), "OTHER")
+def _resolve_branch(data: dict) -> str:
+    killyourself = data.get("knowYourClassAndSection", {})
+    branch = killyourself.get("branch")
+    if branch:
+        cleaned = branch.strip().upper()
+        return cleaned
 
 
 async def _call_pesuauth(username: str, password: str) -> dict | None:
     payload = {
         "username": username,
         "password": password,
-        "profile": True,  # this is needed to get the below fields
-        "fields": ["srn", "branch", "campus", "campusCode"],
+        "profile": True,
+        "knowYourClassAndSection": True,
     }
     try:
         async with httpx.AsyncClient(timeout=60) as http:
@@ -176,13 +169,15 @@ class SlashVerify(commands.Cog):
                 ephemeral=True,
             )
             return
-
+        
         profile = data.get("profile", {})
         verified_srn = profile.get("srn", srn.strip().upper())
-        raw_branch = profile.get("branch", "")
         campus_api = profile.get("campus", "RR").strip().upper()
         year = _year_from_srn(verified_srn)
-        branch_key = _normalise_branch(raw_branch)
+        
+        branch_key = _resolve_branch(data)
+        if branch_key not in self.config.ROLES.get("BRANCH", {}):
+            branch_key = "OTHER"
 
         if year:
             grad_year = str(int(year) + 4)
