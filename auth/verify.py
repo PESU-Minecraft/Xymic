@@ -170,10 +170,9 @@ class SlashVerify(commands.Cog):
             )
             return
         
-        profile = data.get("profile", {})
-        verified_srn = profile.get("srn", srn.strip().upper())
+        verified_srn_or_prn = profile.get("srn", srn.strip().upper()) or profile.get("prn", srn.strip().upper())
         campus_api = profile.get("campus", "RR").strip().upper()
-        year = _year_from_srn(verified_srn)
+        year = _year_from_srn(verified_srn_or_prn)
         
         branch_key = _resolve_branch(data)
         if branch_key not in self.config.ROLES.get("BRANCH", {}):
