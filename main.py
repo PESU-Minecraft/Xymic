@@ -361,19 +361,19 @@ async def start(interaction: discord.Interaction):
     if status == "RUNNING":
         await interaction.response.send_message(
             "🟢 The server is already online.",
-            ephemeral=True
+            ephemeral=False
         )
         return
 
     if status != "TERMINATED":
         await interaction.response.send_message(
             "🟡 The VM is currently busy. Please wait until it is fully stopped.",
-            ephemeral=True
+            ephemeral=False
         )
         return
 
     if is_admin(interaction):
-        await interaction.response.send_message(embed=embed_starting(), ephemeral=True)
+        await interaction.response.send_message(embed=embed_starting(), ephemeral=False)
         await start_vm()
         await interaction.followup.send(embed=embed_started())
         return
@@ -420,11 +420,13 @@ async def check_server():
     STACK: Server control
     Poll to check if server has no members for longer than a minute and shutdown accordingly.
     """
+
     global empty_time, trigger_shutdown
     status = await get_vm_status()
 
     if status == "RUNNING":
         player_count = await get_player_count()
+        print(player_count)
         if player_count is None:
             return
 
@@ -813,6 +815,7 @@ async def shutdown_server(manual=False):
             await channel.send(embed=embed_auto_shutdown())
         await stop_mc_server()
         await channel.send(embed=embed_stopped())
+        await asyncio.sleep(10)
         await stop_vm()
         await channel.send(embed=embed_vm_stop())
 

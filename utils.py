@@ -22,7 +22,13 @@ with open(CONFIG_PATH, "r") as f:
 ADMIN_ID = config["bot"]["ADMIN_ID"].split(",")
 
 SERVER_IP = config["crafty"]["SERVER_IP"]
-SERVER_ID = config["crafty"]["SERVER_ID"]
+SMP_SERVER_ID = config["crafty"]["SMP_SERVER_ID"]
+PROXY_SERVER_ID = config["crafty"]["PROXY_SERVER_ID"]
+LOBBY_SERVER_ID = config["crafty"]["LOBBY_SERVER_ID"]
+POLL_INTERVAL = config["crafty"]["POLL_INTERVAL"]
+POLL_TIMEOUT = config["crafty"]["POLL_TIMEOUT"]
+
+SERVER_IDS = [SMP_SERVER_ID, PROXY_SERVER_ID, LOBBY_SERVER_ID]
 
 PROJECT_ID = config["gcp"]["PROJECT_ID"]
 ZONE = config["gcp"]["ZONE"]
@@ -54,24 +60,29 @@ def is_admin(interaction: discord.Interaction):
 
 async def get_player_count():
     """
-    STACK: Server control
-    Run blocking mcstatus code in a background thread.
-
-    Returns:
-        status.players.online: Number of online players.
+    Returns the total online players across the SMP and Lobby servers.
     """
+
+    url = "https://crafty.pesumc.top/api/v2/servers/status"
     try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, ssl=False) as resp:
+                if resp.status != 200:
+                    print(f"[SERVER CONTROL] Failed to fetch status: {resp.status}")
+                    return None
 
-        def query():
-            server = JavaServer(SERVER_IP, 25565)
-            status = server.status()
-            return status.players.online
+                data = await resp.json()
 
-        return await asyncio.to_thread(query)
-    except TimeoutError:
-        pass
+                total_players = 0
+
+                for server in data.get("data", []):
+                    if server["id"] in (SMP_SERVER_ID, LOBBY_SERVER_ID):
+                        total_players += server.get("online", 0)
+
+                return total_players
+
     except Exception as e:
-        print(f"[SERVER CONTROL] Error checking server status: {e}")
+        print(f"[SERVER CONTROL] Error fetching player count: {e}")
         return None
 
 
@@ -116,25 +127,83 @@ async def get_vm_status():
     return instance.status
 
 
+
 async def stop_mc_server():
     """
-    STACK: Server control
-    Stops the minecraft server on the VM. Requires `CRAFTY_TOKEN` and `SERVER_ID` in `.env`.
+    Stops all Minecraft servers and waits until they are fully stopped.
     """
-    headers = {"Authorization": f"{CRAFTY_TOKEN}", "Content-Type": "application/json"}
-    url = f"https://pesu-mc.ddns.net:8443/api/v2/servers/{SERVER_ID}/action/stop_server"
+
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, ssl=False) as resp:
-            text = await resp.text()
-            print(f"[SERVER CONTROL] Shutdown Response {resp.status}: {text}")
-            if resp.status == 400:
-                print(f"[SERVER CONTROL] Warning: Server already be stopped")
-                return
+        # Send stop requests in parallel
+        await asyncio.gather(
+            *(stop_single_server(session, server_id) for server_id in SERVER_IDS)
+        )
+
+        print("[SERVER CONTROL] Stop commands sent. Waiting for shutdown...")
+
+        await wait_until_servers_stopped(session)
+
+    print("[SERVER CONTROL] All servers stopped.")
+
+
+async def stop_single_server(session: aiohttp.ClientSession, server_id: str):
+    headers = {
+        "Authorization": CRAFTY_TOKEN,
+        "Content-Type": "application/json",
+    }
+
+    url = f"https://crafty.pesumc.top/api/v2/servers/{server_id}/action/stop_server"
+
+    async with session.post(url, headers=headers, ssl=False) as resp:
+        text = await resp.text()
+
+        print(f"[{server_id}] {resp.status}: {text}")
+
+        if resp.status == 400:
+            print(f"[{server_id}] Already stopped")
+            return
+
+        if resp.status != 200:
+            raise Exception(f"Failed to stop {server_id}: {resp.status}")
+
+
+async def wait_until_servers_stopped(session: aiohttp.ClientSession):
+    url = "https://crafty.pesumc.top/api/v2/servers/status"
+
+    deadline = asyncio.get_running_loop().time() + POLL_TIMEOUT
+
+    while True:
+        if asyncio.get_running_loop().time() > deadline:
+            raise TimeoutError(
+                "Timed out waiting for Crafty servers to stop."
+            )
+
+        async with session.get(url) as resp:
             if resp.status != 200:
                 raise Exception(
-                    f"[SERVER CONTROL] Failed to shutdown server: {resp.status}"
+                    f"Failed to fetch Crafty status ({resp.status})"
                 )
+            data = await resp.json()
 
+        running = {}
+
+        for server in data["data"]:
+            if server["id"] in SERVER_IDS:
+                running[server["id"]] = server["running"]
+
+        print(
+            "[SERVER CONTROL]",
+            {
+                "SMP": running.get(SMP_SERVER_ID),
+                "PROXY": running.get(PROXY_SERVER_ID),
+                "LOBBY": running.get(LOBBY_SERVER_ID),
+            },
+        )
+
+        if all(running.get(server_id) is False for server_id in SERVER_IDS):
+            return
+
+        await asyncio.sleep(POLL_INTERVAL)
 
 def format_duration(ms):
     """
