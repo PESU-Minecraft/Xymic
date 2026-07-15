@@ -443,6 +443,8 @@ async def check_server():
             empty_time = None
             trigger_shutdown = False
     else:
+        empty_time = None
+        trigger_shutdown = False
         print("[SERVER CONTROL] Server is off")
 
 @tree.command(name="players", description="List online players")
