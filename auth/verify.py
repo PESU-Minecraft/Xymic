@@ -17,7 +17,7 @@ from auth.general import build_unknown_error_embed
 _PESUAUTH_URL = "https://pesu-auth.onrender.com/authenticate"
 
 # HAHAHA, PCPS U3 helped
-_SRN_VALIDATION_RE = re.compile(r"^PES([12])UG(\d{2})([A-Z]{2})(\d{3})$", re.IGNORECASE)
+_SRN_VALIDATION_RE = re.compile(r"^PES([12])(UG|PG)(\d{2})([A-Z]{2})(\d{3})$", re.IGNORECASE)
 _PRN_VALIDATION_RE = re.compile(r"^PES([12])(\d{4})(\d{5})$", re.IGNORECASE)
 
 
@@ -27,7 +27,7 @@ def _is_valid_srn_or_prn(val: str) -> bool:
     m_srn = _SRN_VALIDATION_RE.match(cleaned)
     if m_srn:
         roll_no = int(m_srn.group(4))
-        return 1 <= roll_no <= 720
+        return 1 <= roll_no <= 931
         
     m_prn = _PRN_VALIDATION_RE.match(cleaned)
     if m_prn:
@@ -83,7 +83,7 @@ class SlashVerify(commands.Cog):
 
     @app_commands.command(
         name="verify",
-        description="Verify yourself using your SRN and PESU Academy password.",
+        description="Verify yourself using your SRN/PRN and PESU Academy password.",
     )
     @app_commands.describe(
         srn="SRN/PRN (e.g. PESxUGxxXXX or PESx20xxXXX)",
