@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 import asyncio
 import discord
@@ -6,6 +7,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import asyncio
 from datetime import datetime, timezone
+from urllib import error, parse, request
 from pymongo import AsyncMongoClient
 from utils import (
     is_admin,
@@ -31,6 +33,10 @@ intents.message_content = True
 intents.members = True
 
 MINECRAFT_COMMANDS = {"start", "stop", "stats", "graph", "duels", "players"}
+LEADERBOARD_LIMIT = 10
+PESUMC_API_BASE_URL = os.getenv("PESUMC_API_BASE_URL", "https://api.pesumc.top").rstrip("/")
+PESUMC_API_TOKEN = os.getenv("PESUMC_API_TOKEN", os.getenv("API_TOKEN", ""))
+PESUMC_CLIENT_ID = os.getenv("PESUMC_CLIENT_ID", os.getenv("CLIENT_ID", ""))
 
 class MinecraftCommandTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -741,6 +747,259 @@ async def stats_player(interaction, username):
     embed.set_footer(text=f"UUID: {doc.get('uuid', 'unknown')}")
 
     await interaction.followup.send(embed=embed)
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _leaderboard_api_headers():
+    if not PESUMC_API_TOKEN or not PESUMC_CLIENT_ID:
+        return None
+
+    return {
+        "Authorization": f"Bearer {PESUMC_API_TOKEN}",
+        "x-client-id": PESUMC_CLIENT_ID,
+    }
+
+
+def _fetch_api_json(path, params=None):
+    url = f"{PESUMC_API_BASE_URL}{path}"
+    if params:
+        url = f"{url}?{parse.urlencode(params)}"
+
+    headers = _leaderboard_api_headers()
+    if not headers:
+        raise RuntimeError("Missing PESU MC API client credentials")
+
+    api_request = request.Request(url, headers=headers, method="GET")
+
+    with request.urlopen(api_request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+async def _fetch_survival_leaderboard(sort_field):
+    params = {
+        "sort": sort_field,
+        "order": "desc",
+        "page": 1,
+        "page_size": LEADERBOARD_LIMIT,
+    }
+
+    data = await asyncio.to_thread(_fetch_api_json, "/player/leaderboard", params)
+    return data.get("results", [])[:LEADERBOARD_LIMIT]
+
+
+def _format_leaderboard_value(value, formatter):
+    if formatter == "duration":
+        return format_duration(_safe_int(value) * 1000)
+    if formatter == "percent":
+        return f"{_safe_float(value):.1f}%"
+    return f"{_safe_int(value):,}"
+
+
+def _build_leaderboard_embed(title, rows, stat_field, stat_label, formatter="number"):
+    embed = discord.Embed(
+        title=title,
+        color=discord.Color.blurple(),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    if not rows:
+        embed.description = "No leaderboard data available."
+        embed.set_footer(text="Showing top 10 players.")
+        return embed
+
+    lines = []
+    for index, row in enumerate(rows, start=1):
+        name = row.get("name") or "Unknown"
+        value = _format_leaderboard_value(row.get(stat_field, 0), formatter)
+        rank = {1: "🥇", 2: "🥈", 3: "🥉"}.get(index, f"**{index}.**")
+        lines.append(f"{rank} `{name}` - **{value}**")
+
+    embed.description = "\n".join(lines)
+    embed.set_footer(text="Showing top 10 players.")
+    return embed
+
+
+async def _fetch_duels_leaderboard(stat_field):
+    def fetch():
+        docs = _fetch_api_json("/duels")
+
+        for doc in docs:
+            wins = _safe_int(doc.get("wins", 0))
+            losses = _safe_int(doc.get("losses", 0))
+            total = wins + losses
+
+            doc["wins"] = wins
+            doc["losses"] = losses
+            doc["win_rate"] = (wins / total * 100) if total > 0 else 0.0
+
+        return sorted(
+            docs,
+            key=lambda doc: (_safe_float(doc.get(stat_field, 0)), _safe_int(doc.get("wins", 0))),
+            reverse=True,
+        )[:LEADERBOARD_LIMIT]
+
+    return await asyncio.to_thread(fetch)
+
+
+LEADERBOARD_CHOICES = {
+    "survival_kills": {
+        "category": "survival",
+        "field": "player_kills",
+        "label": "Player Kills",
+        "formatter": "number",
+        "title": "Survival Leaderboard - Player Kills",
+        "footer": "Showing top 10 players.",
+    },
+    "survival_deaths": {
+        "category": "survival",
+        "field": "deaths",
+        "label": "Deaths",
+        "formatter": "number",
+        "title": "Survival Leaderboard - Deaths",
+        "footer": "Showing top 10 players.",
+    },
+    "survival_mob_kills": {
+        "category": "survival",
+        "field": "mob_kills",
+        "label": "Mob Kills",
+        "formatter": "number",
+        "title": "Survival Leaderboard - Mob Kills",
+        "footer": "Showing top 10 players.",
+    },
+    "duels_wins": {
+        "category": "duels",
+        "field": "wins",
+        "label": "Wins",
+        "formatter": "number",
+        "title": "Duels Leaderboard - Wins",
+        "footer": "Showing top 10 players.",
+    },
+    "duels_losses": {
+        "category": "duels",
+        "field": "losses",
+        "label": "Losses",
+        "formatter": "number",
+        "title": "Duels Leaderboard - Losses",
+        "footer": "Showing top 10 players.",
+    },
+    "duels_win_rate": {
+        "category": "duels",
+        "field": "win_rate",
+        "label": "Win Rate",
+        "formatter": "percent",
+        "title": "Duels Leaderboard - Win Rate",
+        "footer": "Showing top 10 players.",
+    },
+}
+
+
+async def _get_leaderboard_embed(choice_key):
+    choice = LEADERBOARD_CHOICES[choice_key]
+
+    if choice["category"] == "survival":
+        rows = await _fetch_survival_leaderboard(choice["field"])
+    else:
+        rows = await _fetch_duels_leaderboard(choice["field"])
+
+    embed = _build_leaderboard_embed(
+        choice["title"],
+        rows,
+        choice["field"],
+        choice["label"],
+        choice["formatter"],
+    )
+    embed.set_footer(text=choice["footer"])
+    return embed
+
+
+async def _safe_get_leaderboard_embed(choice_key):
+    choice = LEADERBOARD_CHOICES[choice_key]
+    error_message = f"Could not fetch the {choice['category']} leaderboard right now."
+
+    try:
+        await ping_stats()
+        return await _get_leaderboard_embed(choice_key)
+    except error.HTTPError as e:
+        print(f"[LEADERBOARD] PESU MC API returned {e.code}")
+        if e.code in (401, 403):
+            error_message = "The PESU MC API rejected the configured leaderboard credentials."
+    except Exception as e:
+        print(f"[LEADERBOARD] {choice['category'].title()} leaderboard failed: {type(e).__name__}")
+        if "Missing PESU MC API client credentials" in str(e):
+            error_message = "Missing PESU MC API credentials. Set `PESUMC_API_TOKEN` and `PESUMC_CLIENT_ID` in `.env`."
+
+    embed = discord.Embed(
+        title=choice["title"],
+        description=error_message,
+        color=discord.Color.red(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text="Xymic")
+    return embed
+
+
+class LeaderboardSelect(discord.ui.Select):
+    def __init__(self, selected="survival_kills"):
+        options = []
+
+        for value, choice in LEADERBOARD_CHOICES.items():
+            options.append(
+                discord.SelectOption(
+                    label=choice["title"].replace(" Leaderboard -", ""),
+                    value=value,
+                    description=f"Top {LEADERBOARD_LIMIT} by {choice['label'].lower()}",
+                    default=value == selected,
+                )
+            )
+
+        super().__init__(
+            placeholder="Choose a leaderboard",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        choice_key = self.values[0]
+        await interaction.response.defer()
+
+        view = LeaderboardView(selected=choice_key)
+        embed = await _safe_get_leaderboard_embed(choice_key)
+        await interaction.edit_original_response(embed=embed, view=view)
+
+
+class LeaderboardView(discord.ui.View):
+    def __init__(self, selected="survival_kills"):
+        super().__init__(timeout=180)
+        self.add_item(LeaderboardSelect(selected=selected))
+
+
+@tree.command(name="leaderboard", description="Show PESU Minecraft leaderboards")
+async def leaderboard(interaction: discord.Interaction):
+    """
+    STACK: Leaderboards
+    Shows survival and duels leaderboards with a dropdown selector.
+    """
+    await interaction.response.defer()
+
+    default_choice = "survival_kills"
+    embed = await _safe_get_leaderboard_embed(default_choice)
+    view = LeaderboardView(selected=default_choice)
+
+    await interaction.followup.send(embed=embed, view=view)
 
 
 @tree.command(name="duels", description="Show duel statistics for a player")
