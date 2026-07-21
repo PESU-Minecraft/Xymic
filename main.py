@@ -926,20 +926,43 @@ async def _get_leaderboard_embed(choice_key):
 
 
 async def _safe_get_leaderboard_embed(choice_key):
+    import traceback
+
     choice = LEADERBOARD_CHOICES[choice_key]
     error_message = f"Could not fetch the {choice['category']} leaderboard right now."
 
     try:
+        print(f"[LEADERBOARD] Fetching {choice_key} leaderboard...")
         await ping_stats()
         return await _get_leaderboard_embed(choice_key)
+
     except error.HTTPError as e:
-        print(f"[LEADERBOARD] PESU MC API returned {e.code}")
+        print(f"[LEADERBOARD] HTTPError {e.code}")
+
+        try:
+            body = e.read().decode("utf-8")
+            print(f"[LEADERBOARD] Response Body:\n{body}")
+        except Exception:
+            print("[LEADERBOARD] Could not read response body.")
+
+        traceback.print_exc()
+
         if e.code in (401, 403):
-            error_message = "The PESU MC API rejected the configured leaderboard credentials."
+            error_message = (
+                "The PESU MC API rejected the configured leaderboard credentials."
+            )
+
     except Exception as e:
-        print(f"[LEADERBOARD] {choice['category'].title()} leaderboard failed: {type(e).__name__}")
+        print(f"[LEADERBOARD] {choice['category'].title()} leaderboard failed")
+        print(f"[LEADERBOARD] Type: {type(e).__name__}")
+        print(f"[LEADERBOARD] Error: {e}")
+        traceback.print_exc()
+
         if "Missing PESU MC API client credentials" in str(e):
-            error_message = "Missing PESU MC API credentials. Set `PESUMC_API_TOKEN` and `PESUMC_CLIENT_ID` in `.env`."
+            error_message = (
+                "Missing PESU MC API credentials. Set `PESUMC_API_TOKEN` and "
+                "`PESUMC_CLIENT_ID` in `.env`."
+            )
 
     embed = discord.Embed(
         title=choice["title"],
