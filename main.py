@@ -779,12 +779,23 @@ def _fetch_api_json(path, params=None):
         url = f"{url}?{parse.urlencode(params)}"
 
     headers = _leaderboard_api_headers()
-    if not headers:
-        raise RuntimeError("Missing PESU MC API client credentials")
 
-    api_request = request.Request(url, headers=headers, method="GET")
+    # DEBUG
+    print("=" * 60)
+    print("BASE     =", repr(PESUMC_API_BASE_URL))
+    print("PATH     =", repr(path))
+    print("URL      =", repr(url))
+    print("HEADERS  =", {
+        "Authorization": f"Bearer {PESUMC_API_TOKEN[:8]}..." if PESUMC_API_TOKEN else None,
+        "x-client-id": PESUMC_CLIENT_ID,
+    })
 
-    with request.urlopen(api_request, timeout=10) as response:
+    req = request.Request(url, headers=headers, method="GET")
+    print("FULL_URL =", repr(req.full_url))
+    print("SELECTOR =", repr(req.selector))
+    print("=" * 60)
+
+    with request.urlopen(req, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
