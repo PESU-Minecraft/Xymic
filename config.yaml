@@ -1,11 +1,15 @@
 gcp:
-  PROJECT_ID: "pesu-mc-485015"
+  PROJECT_ID: "pesumc-s3"
   ZONE: "asia-south1-c"
-  INSTANCE_NAME: "pesumc-s2"
+  INSTANCE_NAME: "pesumc-s3"
 
 crafty:
-  SERVER_ID: "ec8f65f2-689d-4806-9f87-658490dceaa9"
-  SERVER_IP: "pesu-mc.ddns.net"
+  SMP_SERVER_ID: "b8220115-1fd9-4f12-901d-9ec2e4804416"
+  PROXY_SERVER_ID: "26746516-f252-4ca1-9e57-8e7aabc4f56b"
+  LOBBY_SERVER_ID: "8870a9f0-6f2f-41cb-bbd3-5e2a7bc76fb3"
+  SERVER_IP: "pesumc.top"
+  POLL_TIMEOUT: 120
+  POLL_INTERVAL: 2
   # SERVER_IP: "localhost"
 
 bot:

@@ -58,7 +58,7 @@ class SlashVerify(commands.Cog):
 
     @app_commands.command(
         name="verify",
-        description="Verify yourself using your SRN and PESU Academy password.",
+        description="Verify yourself using your SRN/PRN and PESU Academy password.",
     )
     @app_commands.describe(
         srn="SRN/PRN (e.g. PESxUGxxXXX or PESx20xxXXX)",
