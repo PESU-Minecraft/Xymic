@@ -10,6 +10,15 @@ if TYPE_CHECKING:
 
 
 class Config:
+    BRANCH_SHORT_CODES = {
+        "Computer Science and Engineering": "CSE",
+        "Computer Science and Engineering (AI&ML)": "CSE(AI-ML)",
+        "Electronics and Communication Engineering": "ECE",
+        "Mechanical Engineering": "ME",
+        "Electrical and Electronics Engineering": "EEE",
+        "Biotechnology": "BT",
+    }
+
     ROLES = {
         "FUNCTIONAL": {
             "ADMIN": 1456845605476368598,

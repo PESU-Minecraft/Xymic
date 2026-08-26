@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -28,28 +27,34 @@ def _year_from_srn(srn: str) -> str | None:
     return None
 
 
-def _resolve_branch(data: dict) -> str:
-    killyourself = data.get("knowYourClassAndSection", {})
-    branch = killyourself.get("branch")
+def _resolve_branch(data: dict) -> str | None:
+    profile = data.get("profile", {})
+    branch = profile.get("branch")
     if branch:
-        cleaned = branch.strip().upper()
-        return cleaned
+        cleaned = branch.strip()
+        return Config.BRANCH_SHORT_CODES.get(cleaned)
 
 
-async def _call_pesuauth(username: str, password: str) -> dict | None:
+
+async def _call_pesuauth(
+    username: str, password: str
+) -> dict | None:
     payload = {
         "username": username,
         "password": password,
         "profile": True,
-        "knowYourClassAndSection": True,
     }
     try:
         async with httpx.AsyncClient(timeout=60) as http:
             resp = await http.post(_PESUAUTH_URL, json=payload)
-            return resp.json() if resp.status_code == 200 else None
-    except (httpx.HTTPError, httpx.TimeoutException):
+            return resp.json()
+    except (httpx.HTTPError, httpx.TimeoutException, ValueError):
         return None
 
+
+async def _authenticate(username: str, password: str) -> dict | None:
+    data = await _call_pesuauth(username, password)
+    return data
 
 class SlashVerify(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -125,7 +130,7 @@ class SlashVerify(commands.Cog):
             )
             return
 
-        data = await _call_pesuauth(srn, password)
+        data = await _authenticate(srn, password)
         if not data or not data.get("status"):
             msg = (
                 data.get("message", "Authentication failed.")
